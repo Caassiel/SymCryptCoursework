@@ -1,7 +1,112 @@
 #include <iostream>
-
+#include <fstream>
+#include <cstdint>
+#include <vector>
 using namespace std;
 
+class BitWriter {
+private:
+    ofstream &file;
+    uint8_t temp;
+    int c;
+
+public:
+    BitWriter(ofstream &f) : file(f), temp(0), c(0){}
+    void WriteBitSequence(uint32_t data, int length){
+        for (int i = length - 1; i >= 0; i--){
+            int bit = (data >> i) & 1;
+            temp = (temp << 1) | bit;
+            c++;
+
+            if (c == 8){
+                file.put(temp);
+                temp = 0;
+                c = 0;
+            }
+        }
+    }
+    void Padding(){
+        if (c > 0){
+            temp <<= (8 - c);
+            file.put(temp);
+            temp = 0;
+            c = 0;
+        }
+    }
+    ~BitWriter(){
+        Padding();
+        file.close();
+    }
+};
+
+class BitReader {
+private:
+    ifstream &file;
+    uint8_t temp;
+    int c;
+
+public:
+    BitReader(ifstream &f) : file(f), temp(0), c(0){}
+
+    uint32_t ReadBitSequence(int length){
+        uint32_t result = 0;
+
+        for (int i = 0; i < length; i++){
+            if (c == 0){
+                int byte = file.get();
+                temp = static_cast<uint8_t>(byte);
+                c = 8;
+            }
+
+            int bit = (temp >> 7) & 1;
+            temp <<= 1;
+            c--;
+            result = (result << 1) | bit;
+        }
+
+        return result;
+    }
+
+    ~BitReader(){
+        file.close();
+    }
+};
+
+
+// Тестові вектори
+vector<__uint128_t> Test_Keys = {
+    0x0000000000000000000000000000000,
+    0x00102030405060708090a0b0c0d0e0f,
+    0x123456789abcdef0123456789abcdef,
+    0x00102030405060708090a0b0c0d0e0f,
+    0x123456789abcdeffedcba9876543210
+};
+
+vector<__uint128_t> Test_Plaintexts = {
+    0x00102030405060708090a0b0c0d0e0f,
+    0x0000000000000000000000000000000,
+    0x123456789abcdef0123456789abcdef,
+    0x00102030405060708090a0b0c0d0e0f,
+    0x123456789abcdeffedcba9876543210
+};
+
+// константи KC_i
+vector<uint32_t> KC_i = {
+    0x9e3779b9, 0x3779b99e,
+    0x3c6ef373, 0x6ef3733c,
+    0x78dde6e6, 0xdde6e678,
+    0xf1bbcdcc, 0xbbcdccf1,
+    0xe3779b99, 0x779b99e3,
+    0xc6ef3733, 0xef3733c6,
+    0x8dde6e67, 0xde6e678d,
+    0x1bbcdccf, 0xbcdccf1b
+};
+
+vector<uint32_t> G_function(uint8_t X_1, uint8_t X_2, uint8_t X_3, uint8_t X_4){
+    vector<uint32_t> Output(4);
+
+    return Output;
+}
 
 
 
@@ -13,3 +118,4 @@ int main()
 
     return 0;
 }
+
