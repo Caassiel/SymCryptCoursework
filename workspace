@@ -314,6 +314,7 @@ public:
         return (x << (N - k)) | (x >> k);
     }
 
+    //Generate Round Keys
     void Generate_Subkeys(const Vector_Operation& v){
         uint32_t A, B, C, D;
 
@@ -329,8 +330,45 @@ public:
             else limb[0] = rotate_left(limb[0], 8);
         }
     }
-    
-    
+
+    //F function
+    uint64_t F_function(uint64_t Half, const Vector_Operation& k, int i){
+        uint32_t C, D, C1, D1, C_prime, D_prime;
+        uint64_t Half_prime;
+
+        C = Half >> 32;
+        D = Half % (1 << 32);
+
+        C1 = C ^ k.Subkeys_1[i];
+        D1 = D ^ k.Subkeys_2[i];
+
+        C_prime = G_function(G_function(G_function(C1 ^ D1) + C1) + G_function(C1 ^ D1)) + G_function(G_function(C1 ^ D1) + C1);
+        D_prime = G_function(G_function(G_function(C1 ^ D1) + C1) + G_function(C1 ^ D1));
+
+        return Half_prime = (C_prime << 32) + D_prime;
+    }
+
+    Vector_Operation Encrypt_Block(const Vector_Operation& Block, const Vector_Operation& Key){
+        Vector_Operation Cipherblock;
+
+        uint64_t Right[17] = {0}, Left[17] = {0};
+        Right[0] = Block.limb[0];
+        Left[0] = Block.limb[1];
+
+        for (int i = 1; i <= 15; i++){
+            Left[i] = Right[i - 1];
+            Right[i] = Left[i - 1] ^ F_function(Right[i - 1], Key, i - 1);
+        }
+
+        Left[16] = Left[15] ^ F_function(Right[15], Key, 15);
+        Right[16] = Right[15];
+
+        Cipherblock.limb[0] = Right[16];
+        Cipherblock.limb[1] = Left[16];
+
+
+        return Cipherblock;
+    }
 
 
 
@@ -369,6 +407,7 @@ int main()
 
     return 0;
 }
+
 
 
 
