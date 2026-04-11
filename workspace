@@ -189,7 +189,7 @@ public:
     };
 
     uint8_t S1_Transform(uint8_t x){
-        uint8_t r;
+        uint8_t r = 0;
         uint8_t arr[8] = {0}, ar1[8] = {0}, ar2[8] = {0};
         uint8_t b1[8] = {1, 0, 1, 0, 1, 0, 0, 1}; //169
         uint8_t A1[8][8] = {
@@ -206,7 +206,7 @@ public:
         x = ((int)pow(x, 7) + (int)pow(x, 6) + (int)pow(x, 5) + (int)pow(x, 4) + (int)pow(x, 3) + (int)pow(x, 2)+ x) % 256; //boolean function x^247
 
         for (int i = 0; i < 8; i++){
-            arr[8 - i] = x % 2;
+            arr[7 - i] = x % 2;
             x >>= 1;
         }
 
@@ -214,7 +214,7 @@ public:
             for (int j = 0; j < 8; j++){
                 ar1[i] ^= A1[i][j] & arr[j];
             }
-            ar2[i] = ar1[i] ^ b1[8 - i];
+            ar2[i] = ar1[i] ^ b1[7 - i];
             r += (1 << i) * ar2[i];
         }
 
@@ -227,7 +227,7 @@ public:
     }
 
     uint8_t S2_Transform(uint8_t x){
-        uint8_t r;
+        uint8_t r = 0;
         uint8_t arr[8] = {0}, ar1[8] = {0}, ar2[8] = {0};
         uint8_t b2[8] = {0, 0, 1, 1, 1, 0, 0, 0}; //56
         uint8_t A2[8][8] = {
@@ -244,7 +244,7 @@ public:
         x = ((int)pow(x, 7) + (int)pow(x, 6) + (int)pow(x, 3) + (int)pow(x, 2) + 1) % 256; //boolean function x^251
 
         for (int i = 0; i < 8; i++){
-            arr[8 - i] = x % 2;
+            arr[7 - i] = x % 2;
             x >>= 1;
         }
 
@@ -252,7 +252,7 @@ public:
             for (int j = 0; j < 8; j++){
                 ar1[i] ^= A2[i][j] & arr[j];
             }
-            ar2[i] = ar1[i] ^ b2[8 - i];
+            ar2[i] = ar1[i] ^ b2[7 - i];
             r += (1 << i) * ar2[i];
         }
 
@@ -320,9 +320,9 @@ public:
 
         for (int i = 0; i < 16; i++){
             A = limb[1] >> 32;
-            B = limb[1] % (1 << 32);
+            B = limb[1] & ((1ULL << 32) - 1);
             C = limb[0] >> 32;
-            D = limb[0] % (1 << 32);
+            D = limb[0] & ((1ULL << 32) - 1);
 
             Subkeys_1[i] = G_function(A + C - KC_i[i]);
             Subkeys_2[i] = G_function(B - D + KC_i[i]);
@@ -337,7 +337,7 @@ public:
         uint64_t Half_prime;
 
         C = Half >> 32;
-        D = Half % (1 << 32);
+        D = Half & ((1ULL << 32) - 1);
 
         C1 = C ^ k.Subkeys_1[i];
         D1 = D ^ k.Subkeys_2[i];
@@ -393,12 +393,19 @@ public:
 int main()
 {
 
-    Vector_Operation v1, v2, v3;
+    Vector_Operation v1, k1;
 
-    v1.Random(); v2.Random();
-    v1.Print(); v2.Print();
+    v1.limb[1] = 0x0001020304050607;
+    v1.limb[0] = 0x08090a0b0c0d0e0f;
 
-    v3 = v1.XOR(v2);
+    k1.limb[1] = 0x0001020304050607;
+    k1.limb[0] = 0x08090a0b0c0d0e0f;
+
+    v1.Print(); k1.Print();
+
+    Vector_Operation v3;
+
+    v3.Encrypt_Block(v1, k1);
 
     v3.Print();
 
@@ -407,6 +414,7 @@ int main()
 
     return 0;
 }
+
 
 
 
