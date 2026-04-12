@@ -1,8 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <cstdint>
-#include <vector>
-#include <random>
+
 using namespace std;
 
 class BitWriter {
@@ -82,28 +81,39 @@ public:
         fill(limb, limb+2, 0);
     }
 
-    void Random() {
-        random_device rd;
-        mt19937_64 gen(rd());
-        limb[0] = gen();
-        limb[1] = gen();
-    }
-
-    // Тестові вектори
+    // Test vectors
     uint64_t Test_Keys[10] = {
-        0x0000000000000000, 0x000000000000000,
-        0x0010203040506070, 0x8090a0b0c0d0e0f,
-        0x123456789abcdef0, 0x123456789abcdef,
-        0x0010203040506070, 0x8090a0b0c0d0e0f,
-        0x123456789abcdeff, 0xedcba9876543210
+        0x0000000000000000,
+        0x0000000000000000,
+
+        0x0001020304050607,
+        0x08090a0b0c0d0e0f,
+
+        0x0123456789abcdef,
+        0x0123456789abcdef,
+
+        0x0001020304050607,
+        0x08090a0b0c0d0e0f,
+
+        0x0123456789abcdef,
+        0xfedcba9876543210
     };
 
     uint64_t Test_Plaintexts[10] = {
-        0x0010203040506070, 0x8090a0b0c0d0e0f,
-        0x0000000000000000, 0x000000000000000,
-        0x123456789abcdef0, 0x123456789abcdef,
-        0x0010203040506070, 0x8090a0b0c0d0e0f,
-        0x123456789abcdeff, 0xedcba9876543210
+        0x0001020304050607,
+        0x08090a0b0c0d0e0f,
+
+        0x0000000000000000,
+        0x0000000000000000,
+
+        0x0123456789abcdef,
+        0x0123456789abcdef,
+
+        0x0001020304050607,
+        0x08090a0b0c0d0e0f,
+
+        0x0123456789abcdef,
+        0xfedcba9876543210
     };
 
     static constexpr uint8_t POLY = 0x63;
@@ -123,6 +133,8 @@ public:
     }
 
     uint8_t Power(uint8_t b, int e) const {
+        if (b == 0) return 0;
+        if (e == 0) return 1;
         uint8_t r = 1;
 
         e %= 0xFF;
@@ -202,8 +214,8 @@ public:
             for (int j = 0; j < 8; j++){
                 ar1[i] ^= A1[i][j] & arr[j];
             }
-            ar2[i] = ar1[i] ^ b1[7 - i];
-            r |= (ar2[i] << i);
+            ar2[i] = ar1[i] ^ b1[i];
+            r |= (ar2[i] << (7 - i));
         }
 
         int u = r >> 4;
@@ -240,8 +252,8 @@ public:
             for (int j = 0; j < 8; j++){
                 ar1[i] ^= A2[i][j] & arr[j];
             }
-            ar2[i] = ar1[i] ^ b2[7 - i];
-            r |= (ar2[i] << i);
+            ar2[i] = ar1[i] ^ b2[i];
+            r |= (ar2[i] << (7 - i));
         }
 
         int u = r >> 4;
@@ -263,10 +275,10 @@ public:
         uint8_t m0 = 0xfc, m1 = 0xf3, m2 = 0xcf, m3 = 0x3f;
         uint8_t Z0, Z1, Z2, Z3;
 
-        Z0 = ((S1_Transform(X0) & m0) + (S2_Transform(X1) & m1) + (S1_Transform(X2) & m2) + (S2_Transform(X3) & m3)) % 256 ;
-        Z1 = ((S1_Transform(X0) & m1) + (S2_Transform(X1) & m2) + (S1_Transform(X2) & m3) + (S2_Transform(X3) & m0)) % 256 ;
-        Z2 = ((S1_Transform(X0) & m2) + (S2_Transform(X1) & m3) + (S1_Transform(X2) & m1) + (S2_Transform(X3) & m1)) % 256 ;
-        Z3 = ((S1_Transform(X0) & m3) + (S2_Transform(X1) & m0) + (S1_Transform(X2) & m0) + (S2_Transform(X3) & m2)) % 256 ;
+        Z0 = (S1_Transform(X0) & m0) + (S2_Transform(X1) & m1) + (S1_Transform(X2) & m2) + (S2_Transform(X3) & m3);
+        Z1 = (S1_Transform(X0) & m1) + (S2_Transform(X1) & m2) + (S1_Transform(X2) & m3) + (S2_Transform(X3) & m0);
+        Z2 = (S1_Transform(X0) & m2) + (S2_Transform(X1) & m3) + (S1_Transform(X2) & m0) + (S2_Transform(X3) & m1);
+        Z3 = (S1_Transform(X0) & m3) + (S2_Transform(X1) & m0) + (S1_Transform(X2) & m1) + (S2_Transform(X3) & m2);
 
         Output = Z0 | (Z1 << 8) | (Z2 << 16) | (Z3 << 24);
 
@@ -275,7 +287,7 @@ public:
 
     // Key schedule
 
-    // константи KC_i
+    // constants KC_i
     uint32_t KC_i[16] = {
         0x9e3779b9, 0x3779b99e,
         0x3c6ef373, 0x6ef3733c,
@@ -303,25 +315,27 @@ public:
     }
 
     //Generate Round Keys
-    void Generate_Subkeys(const Vector_Operation& v){
+    void Generate_Subkeys(){
         uint32_t A, B, C, D;
+        uint64_t L0 = limb[0];
+        uint64_t L1 = limb[1];
 
         for (int i = 0; i < 16; i++){
-            A = limb[1] >> 32;
-            B = limb[1] & ((1ULL << 32) - 1);
-            C = limb[0] >> 32;
-            D = limb[0] & ((1ULL << 32) - 1);
+            A = L1 >> 32;
+            B = L1 & 0xFFFFFFFF;
+            C = L0 >> 32;
+            D = L0 & 0xFFFFFFFF;
 
-            Subkeys_1[i] = G_function(A + C - KC_i[i]);
-            Subkeys_2[i] = G_function(B - D + KC_i[i]);
-            if (i%2 == 1) limb[1] = rotate_right(limb[1], 8);
-            else limb[0] = rotate_left(limb[0], 8);
+            Subkeys_1[i] = G_function((uint32_t)(A + C - KC_i[i]));
+            Subkeys_2[i] = G_function((uint32_t)(B - D + KC_i[i]));
+            if (i%2 == 1) L1 = rotate_right(L1, 8);
+            else L0 = rotate_left(L0, 8);
         }
     }
 
     //F function
     uint64_t F_function(uint64_t Half, const Vector_Operation& k, int i){
-        uint32_t C, D, C1, D1, C_prime, D_prime;
+        uint32_t C, D, C1, D1, G1, C_prime, D_prime;
         uint64_t Half_prime;
 
         C = Half >> 32;
@@ -329,9 +343,10 @@ public:
 
         C1 = C ^ k.Subkeys_1[i];
         D1 = D ^ k.Subkeys_2[i];
+        G1 = G_function(C1 ^ D1);
 
-        C_prime = G_function(G_function(G_function(C1 ^ D1) + C1) + G_function(C1 ^ D1)) + G_function(G_function(C1 ^ D1) + C1);
-        D_prime = G_function(G_function(G_function(C1 ^ D1) + C1) + G_function(C1 ^ D1));
+        C_prime = G_function(G_function(G1 + C1) + G1) + G_function(G1 + C1);
+        D_prime = G_function(G_function(G1 + C1) + G1);
 
         return Half_prime = ((unsigned long long)C_prime << 32) | D_prime;
     }
@@ -381,25 +396,33 @@ int main()
 
     Vector_Operation v1, k1;
 
-    v1.limb[1] = 0x0001020304050607;
-    v1.limb[0] = 0x08090a0b0c0d0e0f;
+    v1.limb[0] = v1.Test_Plaintexts[9];
+    v1.limb[1] = v1.Test_Plaintexts[8];
 
-    k1.limb[1] = 0x0001020304050607;
-    k1.limb[0] = 0x08090a0b0c0d0e0f;
+    k1.limb[0] = v1.Test_Keys[9];
+    k1.limb[1] = v1.Test_Keys[8];
 
-    v1.Print(); k1.Print();
+    k1.Generate_Subkeys();
 
-    Vector_Operation v3;
+    cout << "Subkeys: \n";
+    for (int i = 0; i < 16; i++) {
+        cout << "K_ " << i + 1 << ",0: " << hex << k1.Subkeys_1[i] << "\n";
+        cout << "K_ " << i + 1 << ",1: " << hex << k1.Subkeys_2[i] << "\n";
+    }
 
-    v3.Encrypt_Block(v1, k1);
+    cout << "\n\n";
+    cout << "Key:        "; k1.Print();
+    cout << "Plaintext:  "; v1.Print();
 
-    v3.Print();
 
+    Vector_Operation v3 = v1.Encrypt_Block(v1, k1);
 
-
+    cout << "Ciphertext: "; v3.Print();
+    //v3 = 504ec8814d4f85eb81ec4bd210111425
 
     return 0;
 }
+
 
 
 
