@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <vector>
 #include <random>
-#include <cmath>
 using namespace std;
 
 class BitWriter {
@@ -128,16 +127,16 @@ public:
                 int b = __builtin_ctzll(w);
                 int k = i*8 + b;
                 if (k < 8) {
-                    t[k >> 3] |= 1ULL << (k & 7);
+                    t[k >> 3] |= (uint8_t)(1 << (k & 7));
                     w &= w - 1;
                     continue;
                 }
 
                 int d = k - 8;
-                t[ d >> 3 ]   ^= 1ULL << ( d & 7 );
-                t[(d+1)>>3]   ^= 1ULL << ((d+1)&7);
-                t[(d+5)>>3]   ^= 1ULL << ((d+5)&7);
-                t[(d+6)>>3]   ^= 1ULL << ((d+6)&7);
+                t[ d >> 3 ]   ^= (uint8_t)(1 << ( d & 7 ));
+                t[(d+1)>>3]   ^= (uint8_t)(1 << ((d+1)&7));
+                t[(d+5)>>3]   ^= (uint8_t)(1 << ((d+5)&7));
+                t[(d+6)>>3]   ^= (uint8_t)(1 << ((d+6)&7));
 
                 w &= w - 1;
             }
@@ -147,6 +146,36 @@ public:
 
     void Reduce(){
         limb[1] &= Polynomial[1];
+    }
+
+    Vector_Operation Multiplication(const Vector_Operation& b) const {
+        uint8_t temp[8] = {0};
+
+        for (int i = 0; i < 8; i++) {
+            int Words = i >> 3;
+            int Bits  = i & 7;
+            if (((limb[Words] >> Bits) & 1ULL) == 0) continue;
+
+            for (int j = 0; j < 2; j++) {
+                uint8_t v = b.limb[j];
+                uint8_t low = v << Bits;
+                temp[j + Words] ^= low;
+                if (Bits)
+                    temp[j + Words + 1] ^= v >> (8 - Bits);
+            }
+        }
+
+        reduce(temp);
+        Vector_Operation r;
+        r.limb[0] = temp[0];
+        r.limb[1] = temp[1];
+        return r;
+    }
+
+    Vector_Operation Power(const int k) const {
+        Vector_Operation r;
+        for(int i = 0; i < k; i++) r.Multiplication(r);
+        return r;
     }
 
     // G function
@@ -203,7 +232,7 @@ public:
             {0, 0, 0, 1, 0, 1, 0, 0}
         };
 
-        x = ((int)pow(x, 7) + (int)pow(x, 6) + (int)pow(x, 5) + (int)pow(x, 4) + (int)pow(x, 3) + (int)pow(x, 2)+ x) % 256; //boolean function x^247
+        x = (x*x*x*x*x*x*x*x + x*x*x*x*x*x + x*x*x*x*x + x*x*x*x + x*x*x + x*x + x) & 0xFF; //boolean function x^247
 
         for (int i = 0; i < 8; i++){
             arr[7 - i] = x % 2;
@@ -215,7 +244,7 @@ public:
                 ar1[i] ^= A1[i][j] & arr[j];
             }
             ar2[i] = ar1[i] ^ b1[7 - i];
-            r += (1 << i) * ar2[i];
+            r |= (ar2[i] << i);
         }
 
         int u = r >> 4;
@@ -241,7 +270,7 @@ public:
             {0, 0, 0, 1, 0, 1, 0, 0}
         };
 
-        x = ((int)pow(x, 7) + (int)pow(x, 6) + (int)pow(x, 3) + (int)pow(x, 2) + 1) % 256; //boolean function x^251
+        x = (x*x*x*x*x*x*x*x + x*x*x*x*x*x + x*x*x + x*x + 1) & 0xFF ; //boolean function x^251
 
         for (int i = 0; i < 8; i++){
             arr[7 - i] = x % 2;
@@ -253,7 +282,7 @@ public:
                 ar1[i] ^= A2[i][j] & arr[j];
             }
             ar2[i] = ar1[i] ^ b2[7 - i];
-            r += (1 << i) * ar2[i];
+            r |= (ar2[i] << i);
         }
 
         int u = r >> 4;
@@ -266,10 +295,10 @@ public:
 
     uint32_t G_function(uint32_t X){
         uint8_t X0, X1,  X2, X3;
-        X0 = X >> 24;
-        X1 = ((X & (1 << 24)) - 1) >> 16;
-        X2 = ((X & (1 << 16)) - 1) >> 8;
-        X3 = ((X & (1 << 8)) - 1);
+        X0 = (X >> 24) & 0xFF;
+        X1 = (X >> 16) & 0xFF;
+        X2 = (X >> 8)  & 0xFF;
+        X3 = X & 0xFF;
 
         uint32_t Output;
         uint8_t m0 = 0xfc, m1 = 0xf3, m2 = 0xcf, m3 = 0x3f;
@@ -280,7 +309,7 @@ public:
         Z2 = ((S1_Transform(X0) & m2) + (S2_Transform(X1) & m3) + (S1_Transform(X2) & m1) + (S2_Transform(X3) & m1)) % 256 ;
         Z3 = ((S1_Transform(X0) & m3) + (S2_Transform(X1) & m0) + (S1_Transform(X2) & m0) + (S2_Transform(X3) & m2)) % 256 ;
 
-        Output = Z0 + (Z1 << 8) + (Z2 << 16) + (Z3 << 24);
+        Output = Z0 | (Z1 << 8) | (Z2 << 16) | (Z3 << 24);
 
         return Output;
     }
@@ -345,7 +374,7 @@ public:
         C_prime = G_function(G_function(G_function(C1 ^ D1) + C1) + G_function(C1 ^ D1)) + G_function(G_function(C1 ^ D1) + C1);
         D_prime = G_function(G_function(G_function(C1 ^ D1) + C1) + G_function(C1 ^ D1));
 
-        return Half_prime = (C_prime << 32) + D_prime;
+        return Half_prime = ((unsigned long long)C_prime << 32) | D_prime;
     }
 
     Vector_Operation Encrypt_Block(const Vector_Operation& Block, const Vector_Operation& Key){
@@ -414,6 +443,7 @@ int main()
 
     return 0;
 }
+
 
 
 
