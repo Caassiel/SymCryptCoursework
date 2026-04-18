@@ -116,7 +116,7 @@ public:
         0xfedcba9876543210
     };
 
-    static constexpr uint8_t POLY = 0x63;
+    static constexpr uint8_t POLY = 0x63; //x^8 = x^6 + x^5 + x + 1
 
     uint8_t Multiplication(uint8_t a, uint8_t b) const {
         uint8_t r = 0;
@@ -206,21 +206,18 @@ public:
         x = Power(x, 247);
 
         for (int i = 0; i < 8; i++){
-            arr[7 - i] = x % 2;
+            arr[7 - i] = x & 1;
             x >>= 1;
         }
 
         for (int i = 0; i < 8; i++){
-            for (int j = 0; j < 8; j++){
-                ar1[i] ^= A1[i][j] & arr[j];
-            }
+            for (int j = 0; j < 8; j++) ar1[i] ^= A1[i][j] & arr[j];
             ar2[i] = ar1[i] ^ b1[i];
             r |= (ar2[i] << (7 - i));
         }
 
         int u = r >> 4;
-        int v = r % 16;
-
+        int v = r & 0xF;
         r = Box_S1[u][v];
 
         return r;
@@ -244,21 +241,18 @@ public:
         x = Power(x, 251);
 
         for (int i = 0; i < 8; i++){
-            arr[7 - i] = x % 2;
+            arr[7 - i] = x & 1;
             x >>= 1;
         }
 
         for (int i = 0; i < 8; i++){
-            for (int j = 0; j < 8; j++){
-                ar1[i] ^= A2[i][j] & arr[j];
-            }
+            for (int j = 0; j < 8; j++) ar1[i] ^= A2[i][j] & arr[j];
             ar2[i] = ar1[i] ^ b2[i];
             r |= (ar2[i] << (7 - i));
         }
 
         int u = r >> 4;
-        int v = r % 16;
-
+        int v = r & 0xF;
         r = Box_S2[u][v];
 
         return r;
@@ -275,19 +269,17 @@ public:
         uint8_t m0 = 0xfc, m1 = 0xf3, m2 = 0xcf, m3 = 0x3f;
         uint8_t Z0, Z1, Z2, Z3;
 
-        Z0 = (S1_Transform(X0) & m0) + (S2_Transform(X1) & m1) + (S1_Transform(X2) & m2) + (S2_Transform(X3) & m3);
-        Z1 = (S1_Transform(X0) & m1) + (S2_Transform(X1) & m2) + (S1_Transform(X2) & m3) + (S2_Transform(X3) & m0);
-        Z2 = (S1_Transform(X0) & m2) + (S2_Transform(X1) & m3) + (S1_Transform(X2) & m0) + (S2_Transform(X3) & m1);
-        Z3 = (S1_Transform(X0) & m3) + (S2_Transform(X1) & m0) + (S1_Transform(X2) & m1) + (S2_Transform(X3) & m2);
+        Z0 = ((S1_Transform(X0) & m0) + (S2_Transform(X1) & m1) + (S1_Transform(X2) & m2) + (S2_Transform(X3) & m3)) & 0xFF;
+        Z1 = ((S1_Transform(X0) & m1) + (S2_Transform(X1) & m2) + (S1_Transform(X2) & m3) + (S2_Transform(X3) & m0)) & 0xFF;
+        Z2 = ((S1_Transform(X0) & m2) + (S2_Transform(X1) & m3) + (S1_Transform(X2) & m0) + (S2_Transform(X3) & m1)) & 0xFF;
+        Z3 = ((S1_Transform(X0) & m3) + (S2_Transform(X1) & m0) + (S1_Transform(X2) & m1) + (S2_Transform(X3) & m2)) & 0xFF;
 
-        Output = Z0 | (Z1 << 8) | (Z2 << 16) | (Z3 << 24);
+        Output = (Z0 << 24) | (Z1 << 16) | (Z2 << 8) | Z3;
 
         return Output;
     }
 
     // Key schedule
-
-    // constants KC_i
     uint32_t KC_i[16] = {
         0x9e3779b9, 0x3779b99e,
         0x3c6ef373, 0x6ef3733c,
@@ -336,7 +328,6 @@ public:
     //F function
     uint64_t F_function(uint64_t Half, const Vector_Operation& k, int i){
         uint32_t C, D, C1, D1, G1, C_prime, D_prime;
-        uint64_t Half_prime;
 
         C = Half >> 32;
         D = Half & ((1ULL << 32) - 1);
@@ -348,7 +339,7 @@ public:
         C_prime = G_function(G_function(G1 + C1) + G1) + G_function(G1 + C1);
         D_prime = G_function(G_function(G1 + C1) + G1);
 
-        return Half_prime = ((unsigned long long)C_prime << 32) | D_prime;
+        return ((unsigned long long)C_prime << 32) | D_prime;
     }
 
     Vector_Operation Encrypt_Block(const Vector_Operation& Block, const Vector_Operation& Key){
@@ -374,11 +365,11 @@ public:
     }
 
     string Print() const {
-        static const char* hex = "0123456789ABCDEF";
+        static const char* hex = "0123456789abcdef";
         string s;
         s.reserve(64);
 
-        for (int i = 1; i >= 0; i--) {
+        for (int i = 0; i < 2; i++) {
             uint64_t v = limb[i];
             for (int j = 60; j >= 0; j -= 4) s.push_back(hex[(v >> j) & 15]);
         }
@@ -389,39 +380,38 @@ public:
         return s.substr(p);
     }
 
-};
+    void Unit_Test(){
+        Vector_Operation v, k;
+        for (int t = 0; t < 5; t++) {
+            cout << "Test #" << t + 1 << "\n";
 
-int main()
-{
+            v.limb[0] = v.Test_Plaintexts[2 * t];
+            v.limb[1] = v.Test_Plaintexts[2 * t + 1];
 
-    Vector_Operation v1, k1;
+            k.limb[0] = v.Test_Keys[2 * t];
+            k.limb[1] = v.Test_Keys[2 * t + 1];
 
-    v1.limb[0] = v1.Test_Plaintexts[9];
-    v1.limb[1] = v1.Test_Plaintexts[8];
+            k.Generate_Subkeys();
 
-    k1.limb[0] = v1.Test_Keys[9];
-    k1.limb[1] = v1.Test_Keys[8];
+            Vector_Operation c = v.Encrypt_Block(v, k);
+            cout << "Key        : "; k.Print();
+            cout << "Plaintext  : "; v.Print();
+            cout << "Ciphertext : "; c.Print();
 
-    k1.Generate_Subkeys();
-
-    cout << "Subkeys: \n";
-    for (int i = 0; i < 16; i++) {
-        cout << "K_ " << i + 1 << ",0: " << hex << k1.Subkeys_1[i] << "\n";
-        cout << "K_ " << i + 1 << ",1: " << hex << k1.Subkeys_2[i] << "\n";
+            cout << "-----------------------------\n";
+        }
     }
 
-    cout << "\n\n";
-    cout << "Key:        "; k1.Print();
-    cout << "Plaintext:  "; v1.Print();
+};
 
+int main(){
 
-    Vector_Operation v3 = v1.Encrypt_Block(v1, k1);
-
-    cout << "Ciphertext: "; v3.Print();
-    //v3 = 504ec8814d4f85eb81ec4bd210111425
+    Vector_Operation v;
+    v.Unit_Test();
 
     return 0;
 }
+
 
 
 
