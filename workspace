@@ -72,7 +72,6 @@ public:
     uint64_t limb[2];
     uint32_t Subkeys_1[16] = {0}, Subkeys_2[16] = {0};
     Vector_Operation(){fill(limb, limb+2, 0);}
-    static constexpr uint8_t POLY = 0x63; //x^8 = x^6 + x^5 + x + 1
 
     // Test vectors + constants KC_i + Permutation Boxes + Print
     uint64_t Test_Keys[10] = {
@@ -156,27 +155,27 @@ public:
         return (x << (N - k)) | (x >> k);
     }
 
-    uint8_t Multiplication(uint8_t a, uint8_t b) const {
+    uint8_t Multiplication(uint8_t a, uint8_t b, uint8_t poly) const {
         uint8_t r = 0;
 
         while (b) {
             if (b & 1) r ^= a;
             bool carry = a & 0x80; a <<= 1;
-            if (carry) a ^= POLY;
+            if (carry) a ^= poly;
             b >>= 1;
         }
 
         return r;
     }
 
-    uint8_t Power(uint8_t b, int e) const {
+    uint8_t Power(uint8_t b, int e, uint8_t poly) const {
         if (b == 0) return 0;
         if (e == 0) return 1;
         uint8_t r = 1;
 
         while (e > 0) {
-            if (e & 1) r = Multiplication(r, b);
-            b = Multiplication(b, b);
+            if (e & 1) r = Multiplication(r, b, poly);
+            b = Multiplication(b, b, poly);
             e >>= 1;
         }
 
@@ -216,17 +215,17 @@ public:
             {0, 0, 0, 1, 0, 1, 0, 0}
         };
 
-        x = Power(x, 247);
+        x = Power(x, 247, 0x39);
 
         for (int i = 0; i < 8; i++){
-            arr[i] = x & 1;
+            arr[7 - i] = x & 1;
             x >>= 1;
         }
 
         for (int i = 0; i < 8; i++){
             for (int j = 0; j < 8; j++) ar1[i] ^= A1[i][j] & arr[j];
             ar2[i] = ar1[i] ^ b1[i];
-            r |= (ar2[i] << i);
+            r |= (ar2[i] << (7 - i));
         }
 
         int u = r >> 4;
@@ -251,17 +250,17 @@ public:
             {0, 0, 0, 1, 0, 1, 0, 0}
         };
 
-        x = Power(x, 251);
+        x = Power(x, 251, 0xb1);
 
         for (int i = 0; i < 8; i++){
-            arr[i] = x & 1;
+            arr[7 - i] = x & 1;
             x >>= 1;
         }
 
         for (int i = 0; i < 8; i++){
             for (int j = 0; j < 8; j++) ar1[i] ^= A2[i][j] & arr[j];
             ar2[i] = ar1[i] ^ b2[i];
-            r |= (ar2[i] << i);
+            r |= (ar2[i] << (7 - i));
         }
 
         int u = r >> 4;
@@ -276,12 +275,12 @@ public:
         X3 = (X >> 24) & 0xFF; X2 = (X >> 16) & 0xFF; X1 = (X >> 8) & 0xFF; X0 = X & 0xFF;
 
         uint8_t m0 = 0xfc, m1 = 0xf3, m2 = 0xcf, m3 = 0x3f;
-        uint8_t s10 = S1_Transform(X0), s21 = S2_Transform(X1), s12 = S1_Transform(X2), s23 = S2_Transform(X3);
+        uint8_t s10 = S2_Transform(X0), s21 = S1_Transform(X1), s12 = S2_Transform(X2), s23 = S1_Transform(X3);
 
-        Z0 = ((s10 & m0) + (s21 & m1) + (s12 & m2) + (s23 & m3)) & 0xFF;
-        Z1 = ((s10 & m1) + (s21 & m2) + (s12 & m3) + (s23 & m0)) & 0xFF;
-        Z2 = ((s10 & m2) + (s21 & m3) + (s12 & m0) + (s23 & m1)) & 0xFF;
-        Z3 = ((s10 & m3) + (s21 & m0) + (s12 & m1) + (s23 & m2)) & 0xFF;
+        Z0 = (s10 & m0) ^ (s21 & m1) ^ (s12 & m2) ^ (s23 & m3);
+        Z1 = (s10 & m1) ^ (s21 & m2) ^ (s12 & m3) ^ (s23 & m0);
+        Z2 = (s10 & m2) ^ (s21 & m3) ^ (s12 & m0) ^ (s23 & m1);
+        Z3 = (s10 & m3) ^ (s21 & m0) ^ (s12 & m1) ^ (s23 & m2);
 
         return (Z3 << 24) | (Z2 << 16) | (Z1 << 8) | Z0;
     }
@@ -297,22 +296,22 @@ public:
 
             Subkeys_1[i - 1] = G_function((uint32_t)(A + C - KC_i[i - 1]));
             Subkeys_2[i - 1] = G_function((uint32_t)(B - D + KC_i[i - 1]));
-            if (i % 2 == 1) L1 = rotate_right(L1, 8);
-            else L0 = rotate_left(L0, 8);
+            if (i % 2 == 1) L0 = rotate_left(L0, 8);
+            else L1 = rotate_right(L1, 8);
         }
     }
 
     //F function
     uint64_t F_function(uint64_t Half, const Vector_Operation& k, int i){
-        uint32_t C = Half >> 32, D = Half & ((1ULL << 32) - 1), C1, D1, C_prime, D_prime;
+        uint32_t C = Half >> 32, D = Half & ((1ULL << 32) - 1), C1, D1, G1, G2, G3;
 
         C1 = C ^ k.Subkeys_1[i];
         D1 = D ^ k.Subkeys_2[i];
+        G1 = G_function(C1 ^ D1);
+        G2 = G_function(C1 + G1);
+        G3 = G_function(G1 + G2);
 
-        C_prime = G_function(G_function(G_function(C1 ^ D1) + C1) + G_function(C1 ^ D1)) + G_function(G_function(C1 ^ D1) + C1);
-        D_prime = G_function(G_function(G_function(C1 ^ D1) + C1) + G_function(C1 ^ D1));
-
-        return ((unsigned long long)C_prime << 32) | D_prime;
+        return ((unsigned long long)(G3 + G2) << 32) | G3;
     }
 
     //Encryption
@@ -370,6 +369,7 @@ int main(){
     // 7c8f8c7e||c737a22c||ff276cdb||a7ca684a
     return 0;
 }
+
 
 
 
