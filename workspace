@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <cstdint>
+#include <vector>
 using namespace std;
 
 class BitWriter {
@@ -97,25 +98,6 @@ public:
         0xcaf1d16d6ec079a2, 0x1ea4066794222c2a
     };
 
-    uint32_t Addition(uint32_t a, uint32_t b){
-        uint64_t result = (a + b) & 0xFFFFFFFF;
-        return result;
-    }
-
-    void Print() const {
-        static const char* hex = "0123456789abcdef";
-        string s;
-        s.reserve(64);
-
-        for (int i = 0; i < 2; i++) {
-            uint64_t v = limb[i];
-            for (int j = 60; j >= 0; j -= 4) s.push_back(hex[(v >> j) & 15]);
-        }
-
-        cout << s.substr(0,16) << " " << s.substr(16,16) << "\n";
-    }
-
-    //G function
     uint32_t ss0[256] = {
 		0x2989a1a8, 0x05858184, 0x16c6d2d4, 0x13c3d3d0, 0x14445054, 0x1d0d111c, 0x2c8ca0ac, 0x25052124,
 		0x1d4d515c, 0x03434340, 0x18081018, 0x1e0e121c, 0x11415150, 0x3cccf0fc, 0x0acac2c8, 0x23436360,
@@ -256,6 +238,18 @@ public:
 		0xc9d1d819, 0x4c404c0c, 0x83838003, 0x8f838c0f, 0xcec2cc0e, 0x0b33383b, 0x4a42480a, 0x87b3b437,
 	};
 
+    void Print() const {
+        static const char* hex = "0123456789abcdef";
+        string s;
+        s.reserve(64);
+        for (int i = 0; i < 2; i++) {
+            uint64_t v = limb[i];
+            for (int j = 60; j >= 0; j -= 4) s.push_back(hex[(v >> j) & 15]);
+        }
+        cout << s.substr(0,16) << " " << s.substr(16,16) << "\n";
+    }
+
+    //G function
     uint32_t G_function(uint32_t X){
         uint8_t X0, X1, X2, X3;
         X3 = (X >> 24) & 0xFF; X2 = (X >> 16) & 0xFF; X1 = (X >> 8) & 0xFF; X0 = X & 0xFF;
@@ -282,7 +276,7 @@ public:
         return (x << (N - k)) | (x >> k);
     }
 
-    void Generate_Subkeys(){
+    void Generate_Round_Keys(){
         uint32_t A, B, C, D;
         uint64_t L0 = limb[0], L1 = limb[1];
 
@@ -290,8 +284,8 @@ public:
             A = L0 >> 32; B = L0 & 0xFFFFFFFF;
             C = L1 >> 32; D = L1 & 0xFFFFFFFF;
 
-            Subkeys_1[i - 1] = G_function(Addition(A, C) - KC_i[i - 1]);
-            Subkeys_2[i - 1] = G_function(Addition(B, KC_i[i - 1]) - D);
+            Subkeys_1[i - 1] = G_function((uint32_t)(A + C) - KC_i[i - 1]);
+            Subkeys_2[i - 1] = G_function((uint32_t)(B+ KC_i[i - 1]) - D);
             if (i % 2 == 1) L0 = rotate_right(L0, 8);
             else L1 = rotate_left(L1, 8);
         }
@@ -326,7 +320,7 @@ public:
         return Cipherblock;
     }
 
-     Vector_Operation Decrypt_Block(const Vector_Operation& Block, const Vector_Operation& Key){
+    Vector_Operation Decrypt_Block(const Vector_Operation& Block, const Vector_Operation& Key){
         Vector_Operation Plaintextblock; uint64_t Left[17] = {0}, Right[17] = {0};
         Left[0] = Block.limb[0]; Right[0] = Block.limb[1];
 
@@ -356,7 +350,7 @@ public:
                 c_real.limb[0] = v.Real_Ciphertexts[2 * t];
                 c_real.limb[1] = v.Real_Ciphertexts[2 * t + 1];
 
-                k.Generate_Subkeys();
+                k.Generate_Round_Keys();
 
                 cout << "Subkeys: \n";
                 for (int i = 0; i < 16; i++) {
@@ -374,13 +368,130 @@ public:
                 cout << "-----------------------------\n";
             }
     }
+
 };
 
-int main(){
-    Vector_Operation v;
-    v.Unit_Test();
+
+Vector_Operation bytes_to_block(const vector<uint8_t>& data, size_t offset) {
+    Vector_Operation b;
+    for (int i = 0; i < 8; i++)  b.limb[0] = (b.limb[0] << 8) | data[offset + i];
+    for (int i = 8; i < 16; i++) b.limb[1] = (b.limb[1] << 8) | data[offset + i];
+    return b;
+}
+
+void block_to_bytes(const Vector_Operation& b, vector<uint8_t>& data, size_t offset) {
+    for (int i = 7; i >= 0; i--) {
+        data[offset + i]     = b.limb[0] & 0xFF;
+        data[offset + i + 8] = b.limb[1] & 0xFF;
+    }
+
+    for (int i = 0; i < 8; i++) data[offset + i]     = (b.limb[0] >> (56 - 8*i)) & 0xFF;
+    for (int i = 0; i < 8; i++) data[offset + 8 + i] = (b.limb[1] >> (56 - 8*i)) & 0xFF;
+}
+
+void Padding(vector<uint8_t>& data) {
+    uint8_t pad = 16 - (data.size() % 16);
+    data.insert(data.end(), pad, pad);
+}
+
+void Unpadding(vector<uint8_t>& data) {
+    if (data.empty()) return;
+    uint8_t pad = data.back();
+    if (pad < 1 || pad > 16) return;
+    data.resize(data.size() - pad);
+}
+
+void Encrypt_Data(const vector<uint8_t>& input, vector<uint8_t>& output, const Vector_Operation& Key) {
+    vector<uint8_t> padded = input;
+    Padding(padded);
+    output.resize(padded.size());
+
+    for (size_t offset = 0; offset < padded.size(); offset += 16) {
+        Vector_Operation block       = bytes_to_block(padded, offset);
+        Vector_Operation encrypted   = block.Encrypt_Block(block, Key);
+        block_to_bytes(encrypted, output, offset);
+    }
+}
+
+void Decrypt_Data(const vector<uint8_t>& input, vector<uint8_t>& output, const Vector_Operation& Key) {
+    if (input.size() % 16 != 0) {
+        cerr << "Length of ciphertext is not a multiple of 128.\n";
+        exit(1);
+    }
+
+    output.resize(input.size());
+
+    for (size_t offset = 0; offset < input.size(); offset += 16) {
+        Vector_Operation block       = bytes_to_block(input, offset);
+        Vector_Operation decrypted   = block.Decrypt_Block(block, Key);
+        block_to_bytes(decrypted, output, offset);
+    }
+
+    Unpadding(output);
+}
+
+void Encrypt_File(const string& input, const string& output, const string& key_file) {
+    ifstream in(input, ios::binary);
+    if (!in) { cerr << "Cannot open input file\n"; return; }
+
+    ifstream key(key_file, ios::binary);
+    vector<uint8_t> Key((istreambuf_iterator<char>(key)), istreambuf_iterator<char>());
+    Vector_Operation K = bytes_to_block(Key, 0);
+
+    vector<uint8_t> Plaintext((istreambuf_iterator<char>(in)), istreambuf_iterator<char>());
+    in.close();
+    vector<uint8_t> Ciphertext;
+    Encrypt_Data(Plaintext, Ciphertext, K);
+
+    ofstream out(output, ios::binary);
+    out.write(reinterpret_cast<char*>(Ciphertext.data()), Ciphertext.size());
+}
+
+void Decrypt_File(const string& input, const string& output, const string& key_file) {
+    ifstream in(input, ios::binary);
+    if (!in) { cerr << "Cannot open input file\n"; return; }
+
+    ifstream key(key_file, ios::binary);
+    vector<uint8_t> Key((istreambuf_iterator<char>(key)), istreambuf_iterator<char>());
+    Vector_Operation K = bytes_to_block(Key, 0);
+
+    vector<uint8_t> Ciphertext((istreambuf_iterator<char>(in)), istreambuf_iterator<char>());
+    in.close();
+    vector<uint8_t> Plaintext;
+    Decrypt_Data(Ciphertext, Plaintext, K);
+
+    ofstream out(output, ios::binary);
+    out.write(reinterpret_cast<char*>(Plaintext.data()), Plaintext.size());
+}
+
+
+int main(int argc, char* argv[]){
+    if (argc != 5){
+        cout << "This is a program that encrypts and decrypts your files using the SEED block cipher.\n";
+        cout << "To see the results of the Unit test, enter 'SEED Test - - -'\n";
+        cout << "To encrypt a file: SEED encrypt input_file output_file key_file\n";
+        cout << "To decrypt a file: SEED decrypt input_file output_file key_file\n";
+        return 1;
+    }
+
+    string mode = argv[1];
+    if (mode == "Test"){
+        Vector_Operation K;
+        K.Unit_Test();
+    }
+    if (mode == "encrypt"){
+        Encrypt_File(argv[2], argv[3], argv[4]);
+        cout << "Encryption complete.";
+    }
+    if (mode == "decrypt"){
+        Decrypt_File(argv[2], argv[3], argv[4]);
+        cout << "Decryption complete.";
+    }
+    else cout << "Unknown mode.";
+
     return 0;
 }
+
 
 
 
