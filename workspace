@@ -370,8 +370,7 @@ public:
     }
 
 };
-
-
+//Helpers
 Vector_Operation bytes_to_block(const vector<uint8_t>& data, size_t offset) {
     Vector_Operation b;
     for (int i = 0; i < 8; i++)  b.limb[0] = (b.limb[0] << 8) | data[offset + i];
@@ -401,6 +400,7 @@ void Unpadding(vector<uint8_t>& data) {
     data.resize(data.size() - pad);
 }
 
+//File encryption
 void Encrypt_Data(const vector<uint8_t>& input, vector<uint8_t>& output, const Vector_Operation& Key) {
     vector<uint8_t> padded = input;
     Padding(padded);
@@ -437,6 +437,7 @@ void Encrypt_File(const string& input, const string& output, const string& key_f
     ifstream key(key_file, ios::binary);
     vector<uint8_t> Key((istreambuf_iterator<char>(key)), istreambuf_iterator<char>());
     Vector_Operation K = bytes_to_block(Key, 0);
+    K.Generate_Round_Keys();
 
     vector<uint8_t> Plaintext((istreambuf_iterator<char>(in)), istreambuf_iterator<char>());
     in.close();
@@ -454,6 +455,7 @@ void Decrypt_File(const string& input, const string& output, const string& key_f
     ifstream key(key_file, ios::binary);
     vector<uint8_t> Key((istreambuf_iterator<char>(key)), istreambuf_iterator<char>());
     Vector_Operation K = bytes_to_block(Key, 0);
+    K.Generate_Round_Keys();
 
     vector<uint8_t> Ciphertext((istreambuf_iterator<char>(in)), istreambuf_iterator<char>());
     in.close();
@@ -464,30 +466,39 @@ void Decrypt_File(const string& input, const string& output, const string& key_f
     out.write(reinterpret_cast<char*>(Plaintext.data()), Plaintext.size());
 }
 
-
-int main(int argc, char* argv[]){
-    if (argc != 5){
-        cout << "This is a program that encrypts and decrypts your files using the SEED block cipher.\n";
-        cout << "To see the results of the Unit test, enter 'SEED Test - - -'\n";
-        cout << "To encrypt a file: SEED encrypt input_file output_file key_file\n";
-        cout << "To decrypt a file: SEED decrypt input_file output_file key_file\n";
+//CLI
+int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        cout << "SEED block cipher — encrypt and decrypt files.\n\n"
+             << "Usage:\n"
+             << "  SEED test\n"
+             << "  SEED encrypt <input> <output> <key>\n"
+             << "  SEED decrypt <input> <output> <key>\n";
         return 1;
     }
 
     string mode = argv[1];
-    if (mode == "Test"){
+
+    if (mode == "test") {
         Vector_Operation K;
         K.Unit_Test();
+    } else if (mode == "encrypt" || mode == "decrypt") {
+        if (argc != 5) {
+            cerr << "Usage: SEED " << mode << " <input> <output> <key>\n";
+            return 1;
+        }
+        if (mode == "encrypt") {
+            Encrypt_File(argv[2], argv[3], argv[4]);
+            cout << "Encryption complete.\n";
+        } else {
+            Decrypt_File(argv[2], argv[3], argv[4]);
+            cout << "Decryption complete.\n";
+        }
+    } else {
+        cerr << "Unknown mode: '" << mode << "'\n"
+             << "Valid modes: test, encrypt, decrypt\n";
+        return 1;
     }
-    if (mode == "encrypt"){
-        Encrypt_File(argv[2], argv[3], argv[4]);
-        cout << "Encryption complete.";
-    }
-    if (mode == "decrypt"){
-        Decrypt_File(argv[2], argv[3], argv[4]);
-        cout << "Decryption complete.";
-    }
-    else cout << "Unknown mode.";
 
     return 0;
 }
