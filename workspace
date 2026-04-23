@@ -1,7 +1,6 @@
 #include <iostream>
 #include <fstream>
 #include <cstdint>
-
 using namespace std;
 
 class BitWriter {
@@ -182,7 +181,7 @@ public:
         return r;
     }
 
-    string Print() const {
+    void Print() const {
         static const char* hex = "0123456789abcdef";
         string s;
         s.reserve(64);
@@ -192,15 +191,13 @@ public:
             for (int j = 60; j >= 0; j -= 4) s.push_back(hex[(v >> j) & 15]);
         }
 
-        int p = 0;
-        while (p+1 < (int)s.size() && s[p] == '0') p++;
-        cout << s.substr(p) << "\n";
-        return s.substr(p);
+        cout << s.substr(0,16) << " " << s.substr(16,16) << "\n";
     }
 
+    // all good
 
     // G function
-    uint8_t S1_Transform(uint8_t x){
+    uint8_t S1_Transform(uint8_t x, uint8_t poly){
         uint8_t r = 0;
         uint8_t arr[8] = {0}, ar1[8] = {0}, ar2[8] = {0};
         uint8_t b1[8] = {1, 0, 0, 1, 0, 1, 0, 1}; //169
@@ -215,7 +212,7 @@ public:
             {0, 0, 0, 1, 0, 1, 0, 0}
         };
 
-        x = Power(x, 247, 0x39);
+        x = Power(x, 247, poly);
 
         for (int i = 0; i < 8; i++){
             arr[7 - i] = x & 1;
@@ -235,7 +232,7 @@ public:
         return r;
     }
 
-    uint8_t S2_Transform(uint8_t x){
+    uint8_t S2_Transform(uint8_t x, uint8_t poly){
         uint8_t r = 0;
         uint8_t arr[8] = {0}, ar1[8] = {0}, ar2[8] = {0};
         uint8_t b2[8] = {0, 0, 0, 1, 1, 1, 0, 0}; //56
@@ -250,7 +247,7 @@ public:
             {0, 0, 0, 1, 0, 1, 0, 0}
         };
 
-        x = Power(x, 251, 0xb1);
+        x = Power(x, 251, poly);
 
         for (int i = 0; i < 8; i++){
             arr[7 - i] = x & 1;
@@ -270,12 +267,12 @@ public:
         return r;
     }
 
-    uint32_t G_function(uint32_t X){
+    uint32_t G_function(uint32_t X, uint8_t poly){
         uint8_t X0, X1, X2, X3, Z0, Z1, Z2, Z3;
         X3 = (X >> 24) & 0xFF; X2 = (X >> 16) & 0xFF; X1 = (X >> 8) & 0xFF; X0 = X & 0xFF;
 
         uint8_t m0 = 0xfc, m1 = 0xf3, m2 = 0xcf, m3 = 0x3f;
-        uint8_t s10 = S2_Transform(X0), s21 = S1_Transform(X1), s12 = S2_Transform(X2), s23 = S1_Transform(X3);
+        uint8_t s10 = S2_Transform(X0, poly), s21 = S1_Transform(X1, poly), s12 = S2_Transform(X2, poly), s23 = S1_Transform(X3, poly);
 
         Z0 = (s10 & m0) ^ (s21 & m1) ^ (s12 & m2) ^ (s23 & m3);
         Z1 = (s10 & m1) ^ (s21 & m2) ^ (s12 & m3) ^ (s23 & m0);
@@ -286,7 +283,7 @@ public:
     }
 
     //Generate Round Keys
-    void Generate_Subkeys(){
+    void Generate_Subkeys(uint8_t poly){
         uint32_t A, B, C, D;
         uint64_t L0 = limb[0], L1 = limb[1];
 
@@ -294,38 +291,38 @@ public:
             A = L0 >> 32; B = L0 & 0xFFFFFFFF;
             C = L1 >> 32; D = L1 & 0xFFFFFFFF;
 
-            Subkeys_1[i - 1] = G_function((uint32_t)(A + C - KC_i[i - 1]));
-            Subkeys_2[i - 1] = G_function((uint32_t)(B - D + KC_i[i - 1]));
+            Subkeys_1[i - 1] = G_function((uint32_t)(A + C - KC_i[i - 1]), poly);
+            Subkeys_2[i - 1] = G_function((uint32_t)(B - D + KC_i[i - 1]), poly);
             if (i % 2 == 1) L0 = rotate_left(L0, 8);
             else L1 = rotate_right(L1, 8);
         }
     }
 
     //F function
-    uint64_t F_function(uint64_t Half, const Vector_Operation& k, int i){
+    uint64_t F_function(uint64_t Half, const Vector_Operation& k, int i, uint8_t poly){
         uint32_t C = Half >> 32, D = Half & ((1ULL << 32) - 1), C1, D1, G1, G2, G3;
 
         C1 = C ^ k.Subkeys_1[i];
         D1 = D ^ k.Subkeys_2[i];
-        G1 = G_function(C1 ^ D1);
-        G2 = G_function(C1 + G1);
-        G3 = G_function(G1 + G2);
+        G1 = G_function(C1 ^ D1, poly);
+        G2 = G_function(C1 + G1, poly);
+        G3 = G_function(G1 + G2, poly);
 
         return ((unsigned long long)(G3 + G2) << 32) | G3;
     }
 
     //Encryption
-    Vector_Operation Encrypt_Block(const Vector_Operation& Block, const Vector_Operation& Key){
+    Vector_Operation Encrypt_Block(const Vector_Operation& Block, const Vector_Operation& Key, uint8_t poly){
         Vector_Operation Cipherblock; uint64_t Left[17] = {0}, Right[17] = {0};
         Left[0] = Block.limb[0]; Right[0] = Block.limb[1];
 
         for (int i = 1; i <= 15; i++){
             Left[i] = Right[i - 1];
-            Right[i] = Left[i - 1] ^ F_function(Right[i - 1], Key, i - 1);
+            Right[i] = Left[i - 1] ^ F_function(Right[i - 1], Key, i - 1, poly);
         }
 
-        Left[16] = Left[15] ^ F_function(Right[15], Key, 15); Right[16] = Right[15];
-        Cipherblock.limb[1] = Left[16];                       Cipherblock.limb[0] = Right[16];
+        Left[16] = Left[15] ^ F_function(Right[15], Key, 15, poly);  Right[16] = Right[15];
+        Cipherblock.limb[1] = Left[16];                              Cipherblock.limb[0] = Right[16];
 
         return Cipherblock;
     }
@@ -333,31 +330,38 @@ public:
     //Test on keys in specs
     void Unit_Test(){
         Vector_Operation v, c_real, k;
-        for (int t = 0; t < 5; t++) {
-            cout << "Test #" << t + 1 << "\n";
+        for (uint8_t p = 0; p < 0xFF; p++){
+            for (int t = 0; t < 5; t++) {
+               // cout << "Test #" << t + 1 << "\n";
 
-            v.limb[0] = v.Test_Plaintexts[2 * t];
-            v.limb[1] = v.Test_Plaintexts[2 * t + 1];
+                v.limb[0] = v.Test_Plaintexts[2 * t];
+                v.limb[1] = v.Test_Plaintexts[2 * t + 1];
 
-            k.limb[0] = v.Test_Keys[2 * t];
-            k.limb[1] = v.Test_Keys[2 * t + 1];
+                k.limb[0] = v.Test_Keys[2 * t];
+                k.limb[1] = v.Test_Keys[2 * t + 1];
 
-            c_real.limb[0] = v.Real_Ciphertexts[2 * t];
-            c_real.limb[1] = v.Real_Ciphertexts[2 * t + 1];
+                c_real.limb[0] = v.Real_Ciphertexts[2 * t];
+                c_real.limb[1] = v.Real_Ciphertexts[2 * t + 1];
 
-            k.Generate_Subkeys();
-            cout << "Subkeys: \n";
-            for (int i = 0; i < 16; i++) {
-                cout << "K_ " << i + 1 << ",0: " << hex << k.Subkeys_1[i] << "\n";
-                cout << "K_ " << i + 1 << ",1: " << hex << k.Subkeys_2[i] << "\n";
+                k.Generate_Subkeys(p);
+                /*
+                cout << "Subkeys: \n";
+                for (int i = 0; i < 16; i++) {
+                    cout << "K_ " << i + 1 << ",0: " << hex << k.Subkeys_1[i] << "\n";
+                    cout << "K_ " << i + 1 << ",1: " << hex << k.Subkeys_2[i] << "\n";
+                }
+                */
+                Vector_Operation c = v.Encrypt_Block(v, k, p);
+                if (c.limb[0] == c_real.limb[0] && c.limb[1] == c_real.limb[1]){
+                    cout << "Key        : "; k.Print();
+                    cout << "Plaintext  : "; v.Print();
+                    cout << "Ciphertext : "; c.Print();
+                    cout << "Real c-text: "; c_real.Print();
+                    cout << "Polynomial: " << p;
+                    cout << "-----------------------------\n";
+
+                }
             }
-
-            Vector_Operation c = v.Encrypt_Block(v, k);
-            cout << "Key        : "; k.Print();
-            cout << "Plaintext  : "; v.Print();
-            cout << "Ciphertext : "; c.Print();
-            cout << "Real c-text: "; c_real.Print();
-            cout << "-----------------------------\n";
         }
     }
 };
@@ -366,9 +370,10 @@ int main(){
     Vector_Operation v;
     v.Unit_Test();
 
-    // 7c8f8c7e||c737a22c||ff276cdb||a7ca684a
+
     return 0;
 }
+
 
 
 
